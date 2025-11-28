@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Stack - Balanced</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050510;
+            font-family: 'Arial', sans-serif;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 50px;
+            width: 100%;
+            text-align: center;
+            pointer-events: none;
+            z-index: 5;
+        }
+        #score {
+            font-size: 70px;
+            color: white;
+            font-weight: 900;
+            text-shadow: 0 0 20px rgba(255,255,255,0.8);
+            margin: 0;
+            font-style: italic;
+        }
+        #lives {
+            font-size: 30px;
+            margin-top: 10px;
+            color: #ff3366;
+            text-shadow: 0 0 10px #ff3366;
+            letter-spacing: 5px;
+        }
+        #combo-msg {
+            font-size: 30px;
+            color: #0ff;
+            height: 40px;
+            opacity: 0;
+            transition: opacity 0.1s;
+            text-shadow: 0 0 15px #0ff;
+            margin-top: 5px;
+            font-weight: bold;
+            font-style: italic;
+        }
+        #start-screen, #game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        h1 {
+            color: #fff;
+            font-size: 50px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px #f0f, 0 0 40px #f0f;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            font-style: italic;
+        }
+        p {
+            color: #aaa;
+            margin-bottom: 30px;
+            font-size: 18px;
+        }
+        button {
+            background: linear-gradient(45deg, #f0f, #00f);
+            color: white;
+            border: none;
+            padding: 20px 60px;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 0 30px rgba(255, 0, 255, 0.5);
+            transition: transform 0.1s, box-shadow 0.2s;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+        button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 50px rgba(255, 0, 255, 0.8);
+        }
+        button:active {
+            transform: scale(0.95);
+        }
+        #game-over { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div id="score">0</div>
+        <div id="lives">❤❤❤</div>
+        <div id="combo-msg">PERFECT!</div>
+    </div>
+
+    <div id="start-screen">
+        <h1>Neon Stack</h1>
+        <p>실수하면 속도가 초기화됩니다! 🎵</p>
+        <button id="start-btn">PLAY</button>
+    </div>
+
+    <div id="game-over">
+        <h1>GAME OVER</h1>
+        <p>SCORE: <span id="final-score">0</span></p>
+        <button id="restart-btn">RETRY</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- 🎵 오디오 시스템 ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = new AudioContext();
+        
+        const NOTES = [
+            261.63, 293.66, 329.63, 392.00, 440.00, 
+            523.25, 587.33, 659.25, 783.99, 880.00
+        ];
+
+        function playNote(index) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const baseNote = NOTES[index % NOTES.length];
+            const octaveMultiplier = Math.pow(2, Math.floor(index / NOTES.length));
+            const freq = baseNote * octaveMultiplier;
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.type = index > 5 ? 'triangle' : 'sine';
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            
+            gain.gain.setValueAtTime(0, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.3);
+        }
+
+        function playErrorSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 0.3);
+
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.3);
+        }
+
+        // --- 게임 상수 및 변수 ---
+        const BLOCK_HEIGHT = 40;
+        let initialBlockWidth = 220; 
+        
+        const MOVE_SPEED_BASE = 5; // 기본 속도
+        
+        let blocks = [];
+        let debris = []; 
+        let particles = [];
+        let stars = [];
+        let currentBlock = null;
+        let direction = 1; 
+        let speed = MOVE_SPEED_BASE;
+        let score = 0;
+        let combo = 0; 
+        let lives = 3; 
+        let cameraY = 0;
+        let shakeIntensity = 0;
+        let isGameOver = false;
+        let isPlaying = false;
+        let hue = 0; 
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            initStars();
+        }
+        window.addEventListener('resize', resize);
+        
+        function initStars() {
+            stars = [];
+            for(let i=0; i<100; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 2,
+                    speed: Math.random() * 0.5 + 0.1
+                });
+            }
+        }
+        resize();
+
+        // --- 클래스 ---
+
+        class Block {
+            constructor(x, y, width, height, color) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = color;
+            }
+
+            draw() {
+                const grad = ctx.createLinearGradient(this.x, this.y - cameraY, this.x, this.y - cameraY + this.height);
+                grad.addColorStop(0, 'rgba(255,255,255,0.8)');
+                grad.addColorStop(0.2, this.color);
+                grad.addColorStop(1, this.color);
+
+                ctx.fillStyle = grad;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = this.color;
+                ctx.fillRect(this.x, this.y - cameraY, this.width, this.height);
+                
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(this.x, this.y - cameraY, this.width, this.height);
+            }
+        }
+
+        class Debris extends Block {
+            constructor(x, y, width, height, color, vx, vy) {
+                super(x, y, width, height, color);
+                this.vx = vx;
+                this.vy = vy;
+                this.alpha = 1;
+                this.rot = 0;
+                this.rotSpeed = (Math.random() - 0.5) * 0.2;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.8; 
+                this.alpha -= 0.03; 
+                this.rot += this.rotSpeed;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.alpha);
+                
+                const cx = this.x + this.width/2;
+                const cy = this.y - cameraY + this.height/2;
+                ctx.translate(cx, cy);
+                ctx.rotate(this.rot);
+                ctx.translate(-cx, -cy);
+
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fillRect(this.x, this.y - cameraY, this.width, this.height);
+                
+                ctx.restore();
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 5 + 2;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.alpha = 1;
+                this.life = Math.random() * 0.05 + 0.02; 
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.2; 
+                this.alpha -= this.life;
+            }
+
+            draw() {
+                ctx.globalAlpha = Math.max(0, this.alpha);
+                ctx.fillStyle = 'white'; 
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y - cameraY, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // --- 게임 로직 ---
+
+        function initGame() {
+            blocks = [];
+            debris = [];
+            particles = [];
+            score = 0;
+            combo = 0;
+            hue = 0;
+            lives = 3; 
+            isGameOver = false;
+            isPlaying = true;
+            speed = MOVE_SPEED_BASE; // 속도 초기화
+            shakeIntensity = 0;
+            
+            document.getElementById('score').innerText = 0;
+            updateLivesUI();
+
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('game-over').style.display = 'none';
+
+            // 화면 너비에 맞춰 블록 크기 계산
+            initialBlockWidth = Math.min(220, canvas.width * 0.4);
+
+            const baseBlock = new Block(
+                (canvas.width - initialBlockWidth) / 2,
+                canvas.height - 100,
+                initialBlockWidth,
+                BLOCK_HEIGHT,
+                `hsl(${hue}, 100%, 50%)`
+            );
+            blocks.push(baseBlock);
+            
+            spawnNextBlock();
+            
+            cameraY = 0;
+            animate();
+        }
+
+        function updateLivesUI() {
+            let hearts = "";
+            for(let i=0; i<lives; i++) hearts += "❤";
+            document.getElementById('lives').innerText = hearts;
+        }
+
+        function spawnNextBlock() {
+            const prevBlock = blocks[blocks.length - 1];
+            hue = (hue + 20) % 360;
+            
+            const newWidth = prevBlock.width;
+            const newX = direction === 1 ? -newWidth : canvas.width;
+            const newY = prevBlock.y - BLOCK_HEIGHT;
+
+            currentBlock = {
+                x: newX,
+                y: newY,
+                width: newWidth,
+                height: BLOCK_HEIGHT,
+                color: `hsl(${hue}, 100%, 60%)` 
+            };
+        }
+
+        function spawnParticles(x, y, width, color, amount = 10) {
+            for(let i=0; i<amount; i++) {
+                const px = x + Math.random() * width;
+                particles.push(new Particle(px, y, color));
+            }
+        }
+
+        function shakeScreen(amount) {
+            shakeIntensity = amount;
+        }
+
+        function placeBlock() {
+            if (!isPlaying || !currentBlock) return;
+
+            const prevBlock = blocks[blocks.length - 1];
+            const dist = currentBlock.x - prevBlock.x;
+            const absDist = Math.abs(dist);
+
+            // MISS
+            if (absDist >= currentBlock.width) {
+                lives--;
+                updateLivesUI();
+                combo = 0;
+
+                createDebris(currentBlock.x, currentBlock.y, currentBlock.width, currentBlock.height, currentBlock.color, 0);
+                playErrorSound();
+                showComboEffect("MISS!", true);
+                shakeScreen(20);
+
+                if (lives <= 0) {
+                    gameOver();
+                } else {
+                    // [핵심 패치] 실수 시 속도 완전 초기화 (숨 돌릴 틈 제공)
+                    speed = MOVE_SPEED_BASE;
+                    
+                    direction *= -1;
+                    spawnNextBlock(); 
+                }
+                return;
+            }
+
+            let newWidth, newX;
+            
+            // 판정 (10px 이내 Perfect)
+            if (absDist < 10) { 
+                newX = prevBlock.x;
+                newWidth = prevBlock.width;
+                combo++;
+                score += 2; 
+                
+                showComboEffect("PERFECT!");
+                playNote(score); 
+                spawnParticles(newX, currentBlock.y, newWidth, currentBlock.color, 20);
+                
+                // 3연속 퍼펙트 -> 사이즈 업
+                if (combo % 3 === 0) {
+                    newWidth = Math.min(newWidth + 30, initialBlockWidth + 60);
+                    newX -= 15; 
+                    showComboEffect("SIZE UP!");
+                    playNote(score + 12); 
+                    shakeScreen(5); 
+                }
+
+            } else {
+                combo = 0;
+                newWidth = prevBlock.width - absDist;
+                
+                if (dist > 0) {
+                    newX = currentBlock.x; 
+                    createDebris(currentBlock.x + newWidth, currentBlock.y, dist, currentBlock.height, currentBlock.color, 4);
+                } else {
+                    newX = prevBlock.x; 
+                    createDebris(currentBlock.x, currentBlock.y, absDist, currentBlock.height, currentBlock.color, -4);
+                }
+                
+                score++;
+                playNote(score); 
+                spawnParticles(newX, currentBlock.y, newWidth, currentBlock.color, 5); 
+                shakeScreen(2); 
+            }
+
+            const placedBlock = new Block(newX, currentBlock.y, newWidth, BLOCK_HEIGHT, currentBlock.color);
+            blocks.push(placedBlock);
+
+            document.getElementById('score').innerText = score;
+            
+            // [난이도 조절 2] 속도 증가폭 완화 (기존보다 훨씬 천천히 빨라짐)
+            // 매 성공마다 0.2씩 증가 (기존엔 점수 비례해서 팍팍 늘어났음)
+            speed = Math.min(speed + 0.2, 25);
+            
+            direction *= -1;
+            spawnNextBlock();
+        }
+
+        function createDebris(x, y, w, h, c, vx) {
+            const debrisPiece = new Debris(x, y, w, h, c, vx, -2);
+            debris.push(debrisPiece);
+        }
+
+        function showComboEffect(text = "PERFECT!", isBad = false) {
+            const el = document.getElementById('combo-msg');
+            el.innerText = text; 
+            el.style.opacity = 1;
+            el.style.transform = 'scale(2) rotate(-5deg)';
+            
+            if (isBad) {
+                el.style.color = "#ff3366";
+                el.style.textShadow = "0 0 20px red";
+            } else if (text === "SIZE UP!") {
+                el.style.color = "#ffff00";
+                el.style.textShadow = "0 0 20px orange";
+            } else {
+                el.style.color = "#0ff";
+                el.style.textShadow = "0 0 20px cyan";
+            }
+
+            setTimeout(() => {
+                el.style.opacity = 0;
+                el.style.transform = 'scale(1) rotate(0deg)';
+            }, 600);
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            isPlaying = false;
+            
+            document.getElementById('final-score').innerText = score;
+            setTimeout(() => {
+                document.getElementById('game-over').style.display = 'flex';
+            }, 500);
+        }
+
+        function animate() {
+            if (!isPlaying && debris.length === 0 && particles.length === 0) return; 
+
+            ctx.save();
+            if (shakeIntensity > 0) {
+                const dx = (Math.random() - 0.5) * shakeIntensity;
+                const dy = (Math.random() - 0.5) * shakeIntensity;
+                ctx.translate(dx, dy);
+                shakeIntensity *= 0.9;
+                if (shakeIntensity < 0.5) shakeIntensity = 0;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            stars.forEach(star => {
+                ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.5 + 0.3})`;
+                const starY = (star.y - cameraY * 0.2) % canvas.height;
+                let renderY = starY;
+                if(renderY < 0) renderY += canvas.height;
+
+                ctx.beginPath();
+                ctx.arc(star.x, renderY, star.size, 0, Math.PI*2);
+                ctx.fill();
+            });
+
+            if (blocks.length > 0) {
+                const topBlock = blocks[blocks.length - 1];
+                const targetCamY = Math.min(0, topBlock.y - (canvas.height / 1.6));
+                cameraY += (targetCamY - cameraY) * 0.1;
+            }
+
+            blocks.forEach(b => {
+                if (b.y - cameraY < canvas.height && b.y - cameraY + b.height > -100) {
+                    b.draw();
+                }
+            });
+
+            for (let i = debris.length - 1; i >= 0; i--) {
+                debris[i].update();
+                debris[i].draw();
+                if (debris[i].alpha <= 0 || debris[i].y - cameraY > canvas.height) {
+                    debris.splice(i, 1);
+                }
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].draw();
+                if (particles[i].alpha <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            if (isPlaying && currentBlock) {
+                currentBlock.x += speed * direction;
+                
+                if (currentBlock.x > canvas.width - 50 && direction === 1) direction = -1;
+                if (currentBlock.x < -currentBlock.width + 50 && direction === -1) direction = 1;
+
+                const grad = ctx.createLinearGradient(currentBlock.x, currentBlock.y - cameraY, currentBlock.x, currentBlock.y - cameraY + currentBlock.height);
+                grad.addColorStop(0, 'white');
+                grad.addColorStop(0.3, currentBlock.color);
+                grad.addColorStop(1, currentBlock.color);
+
+                ctx.fillStyle = grad;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = currentBlock.color;
+                ctx.fillRect(currentBlock.x, currentBlock.y - cameraY, currentBlock.width, currentBlock.height);
+            }
+
+            ctx.restore(); 
+
+            requestAnimationFrame(animate);
+        }
+
+        function handleInput(e) {
+            if (e.type === 'keydown' && e.code !== 'Space') return;
+            if (e.target.tagName === 'BUTTON') return;
+
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            if (isPlaying) {
+                placeBlock();
+            }
+        }
+
+        window.addEventListener('mousedown', handleInput);
+        window.addEventListener('keydown', handleInput);
+        
+        window.addEventListener('touchstart', (e) => {
+            if (e.target.tagName !== 'BUTTON') {
+                e.preventDefault(); 
+            }
+            handleInput(e);
+        }, {passive: false});
+
+        document.getElementById('start-btn').addEventListener('click', initGame);
+        document.getElementById('restart-btn').addEventListener('click', initGame);
+
+    </script>
+</body>
+</html>
