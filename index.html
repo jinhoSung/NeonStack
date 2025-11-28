@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neon Stack - Wider</title>
+    <title>Neon Stack - Dynamic Tolerance</title>
     <style>
         body {
             margin: 0;
@@ -109,7 +109,7 @@
 
     <div id="start-screen">
         <h1>Neon Stack</h1>
-        <p>더 넓어진 블록으로 도전하세요! 🎵</p>
+        <p>속도가 빠를수록 판정이 후해집니다! 🎵</p>
         <button id="start-btn">PLAY</button>
     </div>
 
@@ -176,7 +176,8 @@
         }
 
         // --- 게임 상수 및 변수 ---
-        const BLOCK_HEIGHT = 40;
+        // [수정] 블록 높이 30으로 축소
+        const BLOCK_HEIGHT = 30;
         let initialBlockWidth = 220; 
         
         const MOVE_SPEED_BASE = 5; 
@@ -335,7 +336,7 @@
             document.getElementById('start-screen').style.display = 'none';
             document.getElementById('game-over').style.display = 'none';
 
-            // [수정] 블록 크기를 화면의 60%로 확대 (최대 350px)
+            // 블록 크기를 화면의 60%로 확대 (최대 350px)
             initialBlockWidth = Math.min(350, canvas.width * 0.6);
 
             const baseBlock = new Block(
@@ -417,8 +418,13 @@
 
             let newWidth, newX;
             
-            // 판정 (10px 이내 Perfect)
-            if (absDist < 10) { 
+            // [핵심] 가변 판정 범위 계산
+            // 기본 10px + (현재 속도 - 기본 속도) * 0.5
+            // 예: 속도가 25(최대)라면 추가 범위는 (25-5)*0.5 = 10px. 총 20px 허용.
+            const tolerance = 10 + Math.max(0, (speed - MOVE_SPEED_BASE) * 0.5);
+
+            // 판정 (가변 범위 이내 Perfect)
+            if (absDist < tolerance) { 
                 newX = prevBlock.x;
                 newWidth = prevBlock.width;
                 combo++;
