@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neon Stack - True Zoom Out</title>
+    <title>Neon Stack - Added GOOD Rating</title>
     <style>
         body {
             margin: 0;
@@ -109,7 +109,7 @@
 
     <div id="start-screen">
         <h1>Neon Stack</h1>
-        <p>확 넓어진 시야로 플레이하세요! 🔭</p>
+        <p>GOOD 판정 추가! 더 여유롭게 즐기세요! 🎵</p>
         <button id="start-btn">PLAY</button>
     </div>
 
@@ -335,8 +335,7 @@
             document.getElementById('start-screen').style.display = 'none';
             document.getElementById('game-over').style.display = 'none';
 
-            // [핵심] 블록 너비를 화면의 30%로 설정 (25~30 요청 반영)
-            // 최대 너비도 200px 정도로 제한하여 PC에서도 너무 크지 않게 함
+            // 블록 너비를 화면의 30%로 설정 (25~30 요청 반영)
             initialBlockWidth = Math.min(200, canvas.width * 0.3);
 
             const baseBlock = new Block(
@@ -395,7 +394,7 @@
             const dist = currentBlock.x - prevBlock.x;
             const absDist = Math.abs(dist);
 
-            // MISS
+            // 1. MISS (완전 실패)
             if (absDist >= currentBlock.width) {
                 lives--;
                 updateLivesUI();
@@ -409,7 +408,7 @@
                 if (lives <= 0) {
                     gameOver();
                 } else {
-                    speed = MOVE_SPEED_BASE;
+                    speed = MOVE_SPEED_BASE; // 속도 초기화
                     direction *= -1;
                     spawnNextBlock(); 
                 }
@@ -418,10 +417,13 @@
 
             let newWidth, newX;
             
-            // 가변 판정
-            const tolerance = 10 + Math.max(0, (speed - MOVE_SPEED_BASE) * 0.5);
+            // 동적 판정 범위
+            const perfectTolerance = 10 + Math.max(0, (speed - MOVE_SPEED_BASE) * 0.5);
+            // GOOD 판정은 Perfect보다 더 넓게 (약 1.5배~2배 느낌으로 여유있게)
+            const goodTolerance = perfectTolerance + 15;
 
-            if (absDist < tolerance) { 
+            // 2. PERFECT (완벽 성공)
+            if (absDist < perfectTolerance) { 
                 newX = prevBlock.x;
                 newWidth = prevBlock.width;
                 combo++;
@@ -431,9 +433,8 @@
                 playNote(score); 
                 spawnParticles(newX, currentBlock.y, newWidth, currentBlock.color, 20);
                 
+                // 3연속 퍼펙트 -> 사이즈 업
                 if (combo % 3 === 0) {
-                    // 사이즈 업 시에도 30% 비율을 기준으로 증가
-                    // 너무 커지지 않게 제한
                     const maxWidth = Math.min(220, canvas.width * 0.35);
                     newWidth = Math.min(newWidth + 20, maxWidth);
                     newX -= 10; 
@@ -442,7 +443,20 @@
                     shakeScreen(5); 
                 }
 
-            } else {
+            } 
+            // 3. GOOD (통과 - 블록 안 잘림, 콤보 리셋)
+            else if (absDist < goodTolerance) {
+                newX = prevBlock.x; // 위치 보정 (Snap)
+                newWidth = prevBlock.width; // 크기 유지 (No Cut)
+                combo = 0; // 콤보 초기화
+                score += 1; // 점수는 1점만
+
+                showComboEffect("GOOD!");
+                playNote(score);
+                spawnParticles(newX, currentBlock.y, newWidth, currentBlock.color, 10); // 파티클 적당히
+            }
+            // 4. CUT (일반 성공 - 블록 잘림)
+            else {
                 combo = 0;
                 newWidth = prevBlock.width - absDist;
                 
@@ -465,7 +479,8 @@
 
             document.getElementById('score').innerText = score;
             
-            speed = Math.min(speed + 0.2, 25);
+            // [수정] 속도 증가폭 0.1로 감소
+            speed = Math.min(speed + 0.1, 25);
             
             direction *= -1;
             spawnNextBlock();
@@ -488,6 +503,9 @@
             } else if (text === "SIZE UP!") {
                 el.style.color = "#ffff00";
                 el.style.textShadow = "0 0 20px orange";
+            } else if (text === "GOOD!") {
+                el.style.color = "#00ff00"; // 초록색
+                el.style.textShadow = "0 0 20px green";
             } else {
                 el.style.color = "#0ff";
                 el.style.textShadow = "0 0 20px cyan";
