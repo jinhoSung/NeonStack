@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neon Stack - Balanced</title>
+    <title>Neon Stack - Wider</title>
     <style>
         body {
             margin: 0;
@@ -109,7 +109,7 @@
 
     <div id="start-screen">
         <h1>Neon Stack</h1>
-        <p>실수하면 속도가 초기화됩니다! 🎵</p>
+        <p>더 넓어진 블록으로 도전하세요! 🎵</p>
         <button id="start-btn">PLAY</button>
     </div>
 
@@ -179,7 +179,7 @@
         const BLOCK_HEIGHT = 40;
         let initialBlockWidth = 220; 
         
-        const MOVE_SPEED_BASE = 5; // 기본 속도
+        const MOVE_SPEED_BASE = 5; 
         
         let blocks = [];
         let debris = []; 
@@ -326,7 +326,7 @@
             lives = 3; 
             isGameOver = false;
             isPlaying = true;
-            speed = MOVE_SPEED_BASE; // 속도 초기화
+            speed = MOVE_SPEED_BASE; 
             shakeIntensity = 0;
             
             document.getElementById('score').innerText = 0;
@@ -335,8 +335,8 @@
             document.getElementById('start-screen').style.display = 'none';
             document.getElementById('game-over').style.display = 'none';
 
-            // 화면 너비에 맞춰 블록 크기 계산
-            initialBlockWidth = Math.min(220, canvas.width * 0.4);
+            // [수정] 블록 크기를 화면의 60%로 확대 (최대 350px)
+            initialBlockWidth = Math.min(350, canvas.width * 0.6);
 
             const baseBlock = new Block(
                 (canvas.width - initialBlockWidth) / 2,
@@ -408,9 +408,7 @@
                 if (lives <= 0) {
                     gameOver();
                 } else {
-                    // [핵심 패치] 실수 시 속도 완전 초기화 (숨 돌릴 틈 제공)
                     speed = MOVE_SPEED_BASE;
-                    
                     direction *= -1;
                     spawnNextBlock(); 
                 }
@@ -462,8 +460,7 @@
 
             document.getElementById('score').innerText = score;
             
-            // [난이도 조절 2] 속도 증가폭 완화 (기존보다 훨씬 천천히 빨라짐)
-            // 매 성공마다 0.2씩 증가 (기존엔 점수 비례해서 팍팍 늘어났음)
+            // 속도 증가 (0.2씩)
             speed = Math.min(speed + 0.2, 25);
             
             direction *= -1;
